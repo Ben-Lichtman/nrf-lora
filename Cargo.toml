@@ -35,7 +35,7 @@ embassy-time = { version = "0.4.0", features = [
     "defmt-timestamp-uptime",
 ] }
 embedded-hal-bus = { version = "0.3.0", features = ["async"] }
-lora-phy = { version = "3.0.2-alpha", path = "lora-rs/lora-phy", features = [
+lora-phy = { git = "https://github.com/lora-rs/lora-rs", version = "3.0.2-alpha", features = [
     "defmt-03",
 ] }
 zerocopy = { version = "0.8.24", features = ["derive"] }

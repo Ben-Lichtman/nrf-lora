@@ -841,6 +841,7 @@ dependencies = [
 [[package]]
 name = "lora-modulation"
 version = "0.1.5"
+source = "git+https://github.com/lora-rs/lora-rs#eb5bf2767591876481525fd40c38a61fc59bbc9b"
 dependencies = [
  "defmt 0.3.100",
 ]
@@ -848,6 +849,7 @@ dependencies = [
 [[package]]
 name = "lora-phy"
 version = "3.0.2-alpha"
+source = "git+https://github.com/lora-rs/lora-rs#eb5bf2767591876481525fd40c38a61fc59bbc9b"
 dependencies = [
  "defmt 0.3.100",
  "document-features",
@@ -861,6 +863,7 @@ dependencies = [
 [[package]]
 name = "lorawan"
 version = "0.9.1"
+source = "git+https://github.com/lora-rs/lora-rs#eb5bf2767591876481525fd40c38a61fc59bbc9b"
 dependencies = [
  "defmt 0.3.100",
  "hex",
@@ -870,6 +873,7 @@ dependencies = [
 [[package]]
 name = "lorawan-device"
 version = "0.12.2"
+source = "git+https://github.com/lora-rs/lora-rs#eb5bf2767591876481525fd40c38a61fc59bbc9b"
 dependencies = [
  "defmt 0.3.100",
  "document-features",
@@ -884,6 +888,7 @@ dependencies = [
 [[package]]
 name = "lorawan-macros"
 version = "0.1.0"
+source = "git+https://github.com/lora-rs/lora-rs#eb5bf2767591876481525fd40c38a61fc59bbc9b"
 dependencies = [
  "proc-macro2",
  "quote",
