@@ -11,8 +11,7 @@
 use std::{env, fs::File, io::Write, path::PathBuf};
 
 fn main() {
-	femtopb_build::compile_protos(&["src/protobufs/meshtastic/mesh.proto"], &["src/protobufs"])
-		.unwrap();
+	femtopb_build::compile_protos(&["protobufs/meshtastic/mesh.proto"], &["protobufs"]).unwrap();
 
 	// Put `memory.x` in our output directory and ensure it's
 	// on the linker search path.
