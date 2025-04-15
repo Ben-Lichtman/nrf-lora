@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "rust: cargo build",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "probe_rs Executable Test",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": false
+            },
+            "chip": "nRF52840_xxAA",
+            "speed": 4000,
+            "coreConfigs": [
+                {
+                    "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/debug/nrf-lora"
+                    // "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/release/nrf-lora"
+                }
+            ]
+        }
+    ]
+}
