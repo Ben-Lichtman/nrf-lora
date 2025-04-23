@@ -63,3 +63,32 @@ pub struct PacketHeader {
 impl PacketHeader {
 	pub const SIZE: usize = size_of::<Self>();
 }
+
+// pub struct Payload {
+// 	len: u8,
+// 	bytes: [u8; PACKET_BUFFER_SIZE as usize],
+// }
+
+// impl From<&[u8]> for Payload {
+// 	fn from(value: &[u8]) -> Self {
+// 		debug_assert!(value.len() < PACKET_BUFFER_SIZE as usize);
+// 		let mut bytes = [0u8; PACKET_BUFFER_SIZE as usize];
+// 		bytes[..value.len()].copy_from_slice(value);
+// 		Self {
+// 			len: value.len() as _,
+// 			bytes,
+// 		}
+// 	}
+// }
+
+// pub struct Packet {
+// 	pub header: PacketHeader,
+// 	pub portnum: PortNum,
+// 	pub payload: Payload,
+// 	pub want_response: bool,
+// 	pub dest: NodeID,
+// 	pub source: NodeID,
+// 	pub request_id: u32,
+// 	pub reply_id: u32,
+// 	pub emoji: u32,
+// }

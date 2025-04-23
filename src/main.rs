@@ -4,14 +4,11 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
-pub mod commands;
-pub mod crypto;
+pub mod constants;
 pub mod error;
-pub mod packet;
+pub mod meshcore;
+pub mod meshtastic;
 pub mod protobuf;
-pub mod radio;
 
 use defmt::*;
 use defmt_rtt as _;
@@ -19,16 +16,9 @@ use embassy_executor::Spawner;
 use embassy_nrf::{
 	bind_interrupts,
 	gpio::{Input, Level, Output, OutputDrive, Pin, Pull},
-	peripherals,
-	rng::{self, Rng},
-	spim,
-};
-use embassy_sync::{
-	blocking_mutex::raw::CriticalSectionRawMutex,
-	channel::{Channel, Receiver, Sender},
+	peripherals, rng, spim,
 };
 use embassy_time::Delay;
-use embedded_alloc::LlffHeap;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use lora_phy::{
 	LoRa,
@@ -36,38 +26,9 @@ use lora_phy::{
 	sx126x::{self, Sx126x, Sx1262, TcxoCtrlVoltage},
 };
 use panic_probe as _;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::commands::{RxMessage, TxMessage};
-
-const PACKET_BUFFER_SIZE: usize = 2048;
-const CHANNEL_SIZE: usize = 10;
-
-const LONGFAST_KEY: [u8; 16] = [
-	0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59, 0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01,
-];
-
-#[global_allocator]
-static HEAP: LlffHeap = LlffHeap::empty();
-
-static TX_CHANNEL: Channel<CriticalSectionRawMutex, TxMessage, CHANNEL_SIZE> = Channel::new();
-static RX_CHANNEL: Channel<CriticalSectionRawMutex, RxMessage, CHANNEL_SIZE> = Channel::new();
-
-bind_interrupts!(struct Irqs {
-	TWISPI1 => spim::InterruptHandler<peripherals::TWISPI1>;
-	RNG => rng::InterruptHandler<peripherals::RNG>;
-});
-
-unsafe fn init_heap() {
-	// Initialize the allocator BEFORE you use it
-
-	use core::mem::MaybeUninit;
-	const HEAP_SIZE: usize = 4096;
-	static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-	#[allow(static_mut_refs)]
-	unsafe {
-		HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE)
-	}
-}
+use crate::{meshcore::MESHCORE_SYNCWORD, meshtastic::MESHTASTIC_SYNCWORD};
 
 type LoraRadio = LoRa<
 	Sx126x<
@@ -78,24 +39,24 @@ type LoraRadio = LoRa<
 	Delay,
 >;
 
+bind_interrupts!(struct Irqs {
+	TWISPI1 => spim::InterruptHandler<peripherals::TWISPI1>;
+	RNG => rng::InterruptHandler<peripherals::RNG>;
+});
+
 #[embassy_executor::task]
-async fn radio_loop(
-	lora: LoraRadio,
-	rng: Rng<'static, peripherals::RNG>,
-	tx_channel: Receiver<'static, CriticalSectionRawMutex, TxMessage, CHANNEL_SIZE>,
-	rx_channel: Sender<'static, CriticalSectionRawMutex, RxMessage, CHANNEL_SIZE>,
-) -> ! {
-	radio::radio_loop(lora, rng, tx_channel, rx_channel).await
-}
+async fn lora_loop(lora: LoraRadio, rng: StdRng) -> ! { meshcore::lora::lora_loop(lora, rng).await }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-	unsafe { init_heap() };
+	// unsafe { init_heap() };
 
 	let p = embassy_nrf::init(Default::default());
 
-	let rng = rng::Rng::new(p.RNG, Irqs);
+	// Configure RNG
+	let mut rng_device = rng::Rng::new(p.RNG, Irqs);
 
+	// Configure LORA radio
 	let nss = Output::new(p.P1_10.degrade(), Level::High, OutputDrive::Standard);
 	let reset = Output::new(p.P1_06.degrade(), Level::High, OutputDrive::Standard);
 	let dio1 = Input::new(p.P1_15.degrade(), Pull::Down);
@@ -123,16 +84,12 @@ async fn main(spawner: Spawner) {
 	)
 	.unwrap();
 
-	let lora = LoRa::with_syncword(Sx126x::new(spi, iv, config), 0x2b, Delay)
+	let lora = LoRa::with_syncword(Sx126x::new(spi, iv, config), MESHCORE_SYNCWORD, Delay)
 		.await
 		.unwrap();
 
 	info!("Setup complete");
 
-	spawner.must_spawn(radio_loop(
-		lora,
-		rng,
-		TX_CHANNEL.receiver(),
-		RX_CHANNEL.sender(),
-	));
+	let rng = StdRng::from_seed(rng_device.r#gen());
+	spawner.must_spawn(lora_loop(lora, rng));
 }

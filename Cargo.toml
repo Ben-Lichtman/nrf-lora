@@ -24,6 +24,7 @@ embassy-executor = { version = "0.7.0", features = [
 embassy-nrf = { version = "0.3.1", features = [
     "defmt",
     "gpiote",
+    "time",
     "nfc-pins-as-gpio",
     "nrf52840",
     "time-driver-rtc1",
@@ -42,10 +43,19 @@ zerocopy = { version = "0.8.24", features = ["derive"] }
 ctr = "0.9.2"
 aes = "0.8.4"
 femtopb = { version = "0.8.0", features = ["defmt"] }
-embedded-alloc = "0.6.0"
 thiserror = { version = "2.0.12", default-features = false }
 rand_core = "0.6.4"
+rand = { version = "0.8.5", default-features = false, features = [
+    "nightly",
+    "std_rng",
+] }
 embassy-sync = { version = "0.6.2", features = ["defmt"] }
+static_cell = { version = "2.1.0", features = ["nightly"] }
+embassy-futures = { version = "0.1.1", features = ["defmt"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = [
+    "fast",
+    "zeroize",
+] }
 
 [build-dependencies]
 femtopb-build = "0.8.0"

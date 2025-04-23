@@ -8,6 +8,8 @@ pub enum Error {
 	RadioError(lora_phy::mod_params::RadioError),
 	#[error("Zerocopy conversion error")]
 	ZeroCopy,
+	#[error("Packet parsing error")]
+	PacketParse,
 	#[error("Protobuf decode error: {0:?}")]
 	ProtobufDecode(femtopb::error::DecodeError),
 	#[error("Protobuf enccode error: {0:?}")]

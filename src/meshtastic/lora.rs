@@ -1,16 +1,14 @@
 use crate::{
-	LONGFAST_KEY, PACKET_BUFFER_SIZE,
-	commands::{RxMessage, TxMessage},
-	crypto::{crypt_data_128, generate_nonce},
+	constants::LONGFAST_KEY,
 	error::{Error, Result},
-	packet::{Flags, NodeID, PacketHeader},
+	meshtastic::{
+		PACKET_BUFFER_SIZE,
+		crypto::{crypt_data_128, generate_nonce},
+		packet::{Flags, NodeID, PacketHeader},
+	},
 	protobuf::{Data, PortNum},
 };
 use defmt::*;
-use embassy_sync::{
-	blocking_mutex::raw::RawMutex,
-	channel::{Receiver, Sender},
-};
 use embassy_time::Timer;
 use femtopb::{EnumValue, Message, UnknownFields};
 use lora_phy::{
@@ -24,7 +22,7 @@ use zerocopy::FromBytes;
 async fn rx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	lora: &mut LoRa<RK, DLY>,
 	mod_params: &ModulationParams,
-	buffer: &'a mut [u8; PACKET_BUFFER_SIZE],
+	buffer: &'a mut [u8; PACKET_BUFFER_SIZE as usize],
 	timeout: u16,
 ) -> Result<(PacketHeader, Data<'a>)> {
 	let rx_pkt_params = lora
@@ -61,7 +59,7 @@ async fn rx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 async fn tx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	lora: &mut LoRa<RK, DLY>,
 	mod_params: &ModulationParams,
-	buffer: &'a mut [u8; PACKET_BUFFER_SIZE],
+	buffer: &'a mut [u8; PACKET_BUFFER_SIZE as usize],
 	header: PacketHeader,
 	data: &Data<'a>,
 ) -> Result<()> {
@@ -72,12 +70,12 @@ async fn tx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	let mut cursor = &mut *body_buffer;
 	data.encode(&mut cursor).map_err(Error::ProtobufEncode)?;
 	let remaining_len = cursor.len();
-	let body = &mut body_buffer[..PACKET_BUFFER_SIZE - remaining_len];
+	let body = &mut body_buffer[..PACKET_BUFFER_SIZE as usize - remaining_len];
 
 	let nonce = generate_nonce(packet_header.packet_id, packet_header.sender.id());
 	crypt_data_128(body, LONGFAST_KEY, nonce);
 
-	let full_packet = &mut buffer[..PACKET_BUFFER_SIZE - remaining_len];
+	let full_packet = &mut buffer[..PACKET_BUFFER_SIZE as usize - remaining_len];
 
 	let mut tx_pkt_params = lora
 		.create_tx_packet_params(16, false, true, false, mod_params)
@@ -96,11 +94,9 @@ async fn tx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	Ok(())
 }
 
-pub async fn radio_loop<RK: RadioKind, DLY: DelayNs, M: RawMutex, const CHANNEL_SIZE: usize>(
+pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 	mut lora: LoRa<RK, DLY>,
-	mut rng: impl RngCore,
-	tx_channel: Receiver<'_, M, TxMessage, CHANNEL_SIZE>,
-	rx_channel: Sender<'_, M, RxMessage, CHANNEL_SIZE>,
+	mut rng: R,
 ) -> ! {
 	let mod_params = lora
 		.create_modulation_params(
@@ -112,7 +108,7 @@ pub async fn radio_loop<RK: RadioKind, DLY: DelayNs, M: RawMutex, const CHANNEL_
 		.unwrap();
 
 	loop {
-		let mut packet_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
+		let mut packet_buffer: [u8; PACKET_BUFFER_SIZE as usize] = [0; PACKET_BUFFER_SIZE as usize];
 
 		let Ok((mut header, data)) = rx_packet(&mut lora, &mod_params, &mut packet_buffer, 0).await
 		else {
@@ -126,17 +122,21 @@ pub async fn radio_loop<RK: RadioKind, DLY: DelayNs, M: RawMutex, const CHANNEL_
 			header.flags.get_hop_limit(),
 			header.flags.get_hop_start(),
 		);
-		info!("Data payload: {:02x}", data.payload);
+		info!("Data payload: {=[u8]:a}", data.payload);
 
 		Timer::after_millis(10).await;
-		// Rebroadcast the message
-		let mut packet_buffer_2: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
-		header.relay_node -= 1;
-		tx_packet(&mut lora, &mod_params, &mut packet_buffer_2, header, &data)
-			.await
-			.unwrap();
 
-		Timer::after_millis(10).await;
+		if header.relay_node > 0 {
+			// Rebroadcast the message
+			let mut packet_buffer_2: [u8; PACKET_BUFFER_SIZE as usize] =
+				[0; PACKET_BUFFER_SIZE as usize];
+			header.relay_node -= 1;
+			tx_packet(&mut lora, &mod_params, &mut packet_buffer_2, header, &data)
+				.await
+				.unwrap();
+
+			Timer::after_millis(10).await;
+		}
 
 		let msg_id = rng.next_u32();
 		let msg_header = PacketHeader {
