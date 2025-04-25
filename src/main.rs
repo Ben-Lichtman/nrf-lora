@@ -49,8 +49,6 @@ async fn lora_loop(lora: LoraRadio, rng: StdRng) -> ! { meshcore::lora::lora_loo
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-	// unsafe { init_heap() };
-
 	let p = embassy_nrf::init(Default::default());
 
 	// Configure RNG

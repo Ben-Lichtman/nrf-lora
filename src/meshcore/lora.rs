@@ -1,5 +1,3 @@
-use core::time;
-
 use crate::{
 	error::{Error, Result},
 	meshcore::{

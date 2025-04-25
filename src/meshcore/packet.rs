@@ -3,6 +3,7 @@ use defmt::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub mod advert;
+pub mod txt_msg;
 
 fn try_split_at<T>(slice: &[T], index: usize) -> Option<(&[T], &[T])> {
 	(slice.len() >= index).then(|| slice.split_at(index))
