@@ -14,4 +14,6 @@ pub enum Error {
 	ProtobufDecode(femtopb::error::DecodeError),
 	#[error("Protobuf enccode error: {0:?}")]
 	ProtobufEncode(femtopb::error::EncodeError),
+	#[error("Invalid MAC")]
+	InvalidMAC,
 }

@@ -3,10 +3,7 @@ use crate::{
 	meshcore::{
 		PACKET_BUFFER_SIZE,
 		crypto::SigningKeys,
-		packet::{
-			Packet, PacketFlags, PacketHeader, PayloadType, PayloadVersion, RouteType,
-			advert::{AdvType, Advert, AdvertFlags, AdvertHeader},
-		},
+		packet::{Packet, PayloadType, advert::Advert, txt_msg::TxtMsgHeader},
 	},
 };
 use defmt::*;
@@ -16,7 +13,7 @@ use lora_phy::{
 	mod_traits::RadioKind,
 };
 use rand_core::RngCore;
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::FromBytes;
 
 async fn rx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	lora: &mut LoRa<RK, DLY>,
@@ -96,57 +93,18 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 		let packet = Packet::from_bytes(packet).unwrap();
 
-		let advert = Advert::from_bytes(packet.payload).unwrap();
-
-		// Send packet
-
-		let rest = PacketHeader::mut_from_prefix(&mut packet_buffer)
-			.map(|(x, rest)| {
-				*x = PacketHeader {
-					flags: PacketFlags::new(
-						RouteType::Direct,
-						PayloadType::Advert,
-						PayloadVersion::Ver1,
-					),
-					path_len: 0,
-				};
-				rest
-			})
-			.unwrap();
-
-		let timestamp = 1672534719u32;
-		let flags = AdvertFlags::from_adv_type(AdvType::Chat) | AdvertFlags::NAME;
-
-		let name = *b"BOT";
-
-		let mut signed_message = [0u8; 40];
-		*signed_message[0..32].as_mut_array().unwrap() = identity.public_key();
-		*signed_message[32..36].as_mut_array().unwrap() = timestamp.to_le_bytes();
-		signed_message[36] = flags.as_raw();
-		*signed_message[37..40].as_mut_array().unwrap() = name;
-
-		let advert_header = AdvertHeader {
-			pub_key: identity.public_key(),
-			timestamp: timestamp.into(),
-			signature: identity.sign_message(&signed_message),
-			flags,
-		};
-
-		let rest = AdvertHeader::mut_from_prefix(rest)
-			.map(|(x, rest)| {
-				*x = advert_header;
-				rest
-			})
-			.unwrap();
-
-		name.write_to_prefix(rest).unwrap();
-		tx_packet(
-			&mut lora,
-			&mod_params,
-			&packet_buffer
-				[..size_of::<PacketHeader>() + size_of::<AdvertHeader>() + size_of_val(&name)],
-		)
-		.await
-		.unwrap();
+		match packet.header.flags.payload_type().unwrap() {
+			PayloadType::Advert => {
+				let (advert, _) = Advert::from_bytes(packet.payload).unwrap();
+				info!("advert: {}", Debug2Format(&advert));
+			}
+			PayloadType::Txt => {
+				let (advert, payload) = TxtMsgHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("advert: {}", Debug2Format(&advert));
+			}
+			unknown => {
+				info!("unknown payload type: {}", unknown);
+			}
+		}
 	}
 }
