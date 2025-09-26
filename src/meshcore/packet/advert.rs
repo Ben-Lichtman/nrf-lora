@@ -1,13 +1,31 @@
 use crate::{
 	error::{Error, Result},
-	meshcore::SIGNATURE_SIZE,
+	meshcore::{PACKET_BUFFER_SIZE, SIGNATURE_SIZE},
 };
 use core::ops::BitOr;
-use defmt::*;
-use zerocopy::{
-	FromBytes, Immutable, IntoBytes, KnownLayout,
-	little_endian::{U16, U32},
-};
+use defmt::{write, *};
+use ed25519_dalek::{Signature, VerifyingKey};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+#[repr(transparent)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct U16(zerocopy::little_endian::U16);
+
+impl Format for U16 {
+	fn format(&self, fmt: Formatter) {
+		write!(fmt, "{:04x}", self.0.get());
+	}
+}
+
+#[repr(transparent)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct U32(zerocopy::little_endian::U32);
+
+impl Format for U32 {
+	fn format(&self, fmt: Formatter) {
+		write!(fmt, "{:08x}", self.0.get());
+	}
+}
 
 #[derive(Clone, Format)]
 #[repr(u8)]
@@ -18,7 +36,7 @@ pub enum AdvType {
 	Room = 0b11,
 }
 
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Debug, Format)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct AdvertFlags(u8);
 
@@ -46,7 +64,13 @@ impl AdvertFlags {
 	pub fn as_raw(&self) -> u8 { self.0 }
 }
 
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Debug)]
+impl Format for AdvertFlags {
+	fn format(&self, fmt: Formatter) {
+		write!(fmt, "{:x}", self.0);
+	}
+}
+
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct AdvertHeader {
 	pub pub_key: [u8; 32],
@@ -55,22 +79,35 @@ pub struct AdvertHeader {
 	pub flags: AdvertFlags,
 }
 
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Debug)]
+impl Format for AdvertHeader {
+	fn format(&self, fmt: Formatter) {
+		write!(
+			fmt,
+			"AdvertHeader {{ pub_key: {}.., timestamp: {}, signature: {}..., flags: {} }}",
+			self.pub_key[..4],
+			self.timestamp,
+			self.signature[..4],
+			self.flags
+		);
+	}
+}
+
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Format)]
 #[repr(C)]
 pub struct LatLong {
 	pub lat: U32,
 	pub long: U32,
 }
 
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Debug)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Format)]
 #[repr(C)]
 pub struct Battery(pub U16);
 
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Debug)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable, Format)]
 #[repr(C)]
 pub struct Temperature(pub U16);
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Advert<'a> {
 	pub header: AdvertHeader,
 	pub lat_long: Option<LatLong>,
@@ -83,6 +120,18 @@ impl<'a> Advert<'a> {
 	pub fn from_bytes(payload: &'a [u8]) -> Result<(Self, &'a [u8])> {
 		let (header, mut body) =
 			AdvertHeader::ref_from_prefix(payload).map_err(|_| Error::ZeroCopy)?;
+
+		// Verify advert contents
+		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE as usize];
+		message_buffer[..32].copy_from_slice(&header.pub_key);
+		message_buffer[32..36].copy_from_slice(header.timestamp.as_bytes());
+		message_buffer[36] = header.flags.as_raw();
+		message_buffer[37..37 + body.len()].copy_from_slice(body);
+		let pub_key = VerifyingKey::from_bytes(&header.pub_key).unwrap();
+		let signature = Signature::from_bytes(&header.signature);
+		pub_key
+			.verify_strict(&message_buffer[..32 + 4 + 1 + body.len()], &signature)
+			.map_err(Error::CryptoError)?;
 
 		let mut lat_long = None;
 		let mut battery = None;
@@ -118,8 +167,21 @@ impl<'a> Advert<'a> {
 			name,
 		};
 
-		info!("Got advert: {}", Debug2Format(&advert));
-
 		Ok((advert, body))
+	}
+}
+
+impl Format for Advert<'_> {
+	fn format(&self, fmt: Formatter) {
+		write!(
+			fmt,
+			"Advert {{ header: {}, lat_long: {}, battery: {}, temperature: {}, name: {} }}",
+			self.header,
+			self.lat_long,
+			self.battery,
+			self.temperature,
+			self.name
+				.map(|bytes| str::from_utf8(bytes).unwrap_or("<invalid>"))
+		);
 	}
 }

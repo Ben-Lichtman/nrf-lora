@@ -67,14 +67,14 @@ async fn tx_packet<RK: RadioKind, DLY: DelayNs>(
 
 pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 	mut lora: LoRa<RK, DLY>,
-	mut rng: R,
+	mut _rng: R,
 ) -> ! {
 	let mod_params = lora
 		.create_modulation_params(
-			SpreadingFactor::_11,
+			SpreadingFactor::_10,
 			Bandwidth::_250KHz,
 			CodingRate::_4_5,
-			910_525_000,
+			915_000_000,
 		)
 		.unwrap();
 
@@ -93,17 +93,19 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 		let packet = Packet::from_bytes(packet).unwrap();
 
+		println!("{:?}", packet.header);
+
 		match packet.header.flags.payload_type().unwrap() {
 			PayloadType::Advert => {
 				let (advert, _) = Advert::from_bytes(packet.payload).unwrap();
-				info!("advert: {}", Debug2Format(&advert));
+				info!("advert: {:?}", &advert);
 			}
 			PayloadType::Txt => {
-				let (advert, payload) = TxtMsgHeader::ref_from_prefix(packet.payload).unwrap();
-				info!("advert: {}", Debug2Format(&advert));
+				let (txt, payload) = TxtMsgHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("txt: {:02x}", Debug2Format(&txt));
 			}
 			unknown => {
-				info!("unknown payload type: {}", unknown);
+				info!("unknown payload type: {:02x}", unknown);
 			}
 		}
 	}

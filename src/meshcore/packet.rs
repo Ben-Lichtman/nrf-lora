@@ -114,9 +114,9 @@ impl<'a> Packet<'a> {
 		let (header, tail) = PacketHeader::ref_from_prefix(bytes).map_err(|_| Error::ZeroCopy)?;
 		let (path, payload) = try_split_at(tail, header.path_len as _).ok_or(Error::PacketParse)?;
 
-		info!("header: {:02x}", header);
-		info!("path: {:02x}", path);
-		info!("payload: {:02x}", payload);
+		// info!("header: {:02x}", header);
+		// info!("path: {:02x}", path);
+		// info!("payload: {:02x}", payload);
 
 		let packet = Self {
 			header: header.clone(),

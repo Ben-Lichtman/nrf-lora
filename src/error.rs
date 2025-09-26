@@ -16,4 +16,6 @@ pub enum Error {
 	ProtobufEncode(femtopb::error::EncodeError),
 	#[error("Invalid MAC")]
 	InvalidMAC,
+	#[error("Cryptographic error")]
+	CryptoError(ed25519_dalek::SignatureError),
 }
