@@ -30,8 +30,8 @@ impl SigningKeys {
 	pub fn sign_message(&self, msg: &[u8]) -> [u8; 64] { self.keys.sign(msg).to_bytes() }
 
 	pub fn calc_shared_secret(&self, other: &VerifyingKey) -> SharedSecret {
-		let secret = StaticSecret::from(self.keys.to_bytes());
-		let public = PublicKey::from(other.to_bytes());
-		secret.diffie_hellman(&public)
+		let sk = StaticSecret::from(self.keys.to_scalar().to_bytes());
+		let pk = PublicKey::from(other.to_montgomery().0);
+		sk.diffie_hellman(&pk)
 	}
 }
