@@ -1,9 +1,11 @@
 use crate::{
 	error::{Error, Result},
 	meshcore::{
-		PACKET_BUFFER_SIZE,
-		crypto::SigningKeys,
-		packet::{Packet, PayloadType, advert::Advert, txt_msg::TxtMsgHeader},
+		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
+		crypto::{PUBLIC_GROUP_PSK, SigningKeys, msg_mac},
+		packet::{
+			Packet, PayloadType, advert::Advert, grp_txt::GrpTextHeader, txt_msg::TxtMsgHeader,
+		},
 	},
 };
 use defmt::*;
@@ -102,7 +104,25 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 			}
 			PayloadType::Txt => {
 				let (txt, payload) = TxtMsgHeader::ref_from_prefix(packet.payload).unwrap();
-				info!("txt: {:02x}", Debug2Format(&txt));
+				info!("txt: {:02x}", &txt);
+			}
+			PayloadType::GrpText => {
+				let (grp_txt, payload) = GrpTextHeader::ref_from_prefix(packet.payload).unwrap();
+
+				info!("grp_txt: {:02x}", &grp_txt);
+
+				if grp_txt.channel_hash == PUBLIC_GROUP_HASH {
+					// Sent on public group
+					info!("Public group text");
+
+					let mac = msg_mac(payload, &PUBLIC_GROUP_PSK).unwrap();
+					if mac[..2] != grp_txt.mac {
+						error!("MACs don't match");
+						continue;
+					}
+
+					// TODO: decrypt the message (AES-128-ECB)
+				}
 			}
 			unknown => {
 				info!("unknown payload type: {:02x}", unknown);

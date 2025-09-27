@@ -17,5 +17,5 @@ pub enum Error {
 	#[error("Invalid MAC")]
 	InvalidMAC,
 	#[error("Cryptographic error")]
-	CryptoError(ed25519_dalek::SignatureError),
+	CryptoError,
 }

@@ -131,7 +131,7 @@ impl<'a> Advert<'a> {
 		let signature = Signature::from_bytes(&header.signature);
 		pub_key
 			.verify_strict(&message_buffer[..32 + 4 + 1 + body.len()], &signature)
-			.map_err(Error::CryptoError)?;
+			.map_err(|_| Error::CryptoError)?;
 
 		let mut lat_long = None;
 		let mut battery = None;
