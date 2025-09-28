@@ -10,7 +10,7 @@ pub struct PlainMessageHeader {
 }
 
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct MessageFlags(u8);
 
 impl Format for MessageFlags {

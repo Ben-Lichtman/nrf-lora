@@ -2,6 +2,7 @@ use crate::{
 	error::{Error, Result},
 	meshcore::{
 		PACKET_BUFFER_SIZE, SIGNATURE_SIZE,
+		crypto::SigningKeys,
 		packet::{U16, U32},
 	},
 };
@@ -20,7 +21,7 @@ pub enum AdvType {
 }
 
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct AdvertFlags(u8);
 
 impl BitOr for AdvertFlags {
@@ -60,6 +61,31 @@ pub struct AdvertHeader {
 	pub timestamp: U32,
 	pub signature: [u8; SIGNATURE_SIZE],
 	pub flags: AdvertFlags,
+}
+
+impl AdvertHeader {
+	pub fn verify_signature(&self, body: &[u8]) -> Result<()> {
+		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE];
+		message_buffer[..32].copy_from_slice(&self.pub_key);
+		message_buffer[32..36].copy_from_slice(self.timestamp.as_bytes());
+		message_buffer[36] = self.flags.as_raw();
+		message_buffer[37..37 + body.len()].copy_from_slice(body);
+		let pub_key = VerifyingKey::from_bytes(&self.pub_key).unwrap();
+		let signature = Signature::from_bytes(&self.signature);
+		pub_key
+			.verify_strict(&message_buffer[..32 + 4 + 1 + body.len()], &signature)
+			.map_err(|_| Error::CryptoError)
+	}
+
+	pub fn fill_key_and_signature(&mut self, body: &[u8], identity: &SigningKeys) {
+		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE];
+		self.pub_key = identity.public_key();
+		message_buffer[..32].copy_from_slice(&identity.public_key());
+		message_buffer[32..36].copy_from_slice(self.timestamp.as_bytes());
+		message_buffer[36] = self.flags.as_raw();
+		message_buffer[37..37 + body.len()].copy_from_slice(body);
+		self.signature = identity.sign_message(&message_buffer[..32 + 4 + 1 + body.len()]);
+	}
 }
 
 impl Format for AdvertHeader {
@@ -105,16 +131,7 @@ impl<'a> Advert<'a> {
 			AdvertHeader::ref_from_prefix(payload).map_err(|_| Error::ZeroCopy)?;
 
 		// Verify advert contents
-		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE];
-		message_buffer[..32].copy_from_slice(&header.pub_key);
-		message_buffer[32..36].copy_from_slice(header.timestamp.as_bytes());
-		message_buffer[36] = header.flags.as_raw();
-		message_buffer[37..37 + body.len()].copy_from_slice(body);
-		let pub_key = VerifyingKey::from_bytes(&header.pub_key).unwrap();
-		let signature = Signature::from_bytes(&header.signature);
-		pub_key
-			.verify_strict(&message_buffer[..32 + 4 + 1 + body.len()], &signature)
-			.map_err(|_| Error::CryptoError)?;
+		header.verify_signature(body)?;
 
 		let mut lat_long = None;
 		let mut battery = None;

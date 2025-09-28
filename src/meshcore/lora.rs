@@ -4,8 +4,12 @@ use crate::{
 		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
 		crypto::{PUBLIC_GROUP_PSK, SigningKeys, decrypt_message, msg_mac},
 		packet::{
-			Packet, PayloadType, advert::Advert, grp_txt::GrpTextHeader,
-			plain_message::PlainMessageHeader, txt_msg::TxtMsgHeader,
+			Packet, PacketFlags, PacketHeader, PayloadType, PayloadVersion, RouteType, U32,
+			advert::{AdvType, Advert, AdvertFlags, AdvertHeader},
+			grp_txt::GrpTextHeader,
+			plain_message::PlainMessageHeader,
+			try_split_at_mut,
+			txt_msg::TxtMsgHeader,
 		},
 	},
 };
@@ -21,7 +25,7 @@ use zerocopy::FromBytes;
 async fn rx_packet<'a, RK: RadioKind, DLY: DelayNs>(
 	lora: &mut LoRa<RK, DLY>,
 	mod_params: &ModulationParams,
-	buffer: &'a mut [u8; PACKET_BUFFER_SIZE as usize],
+	buffer: &'a mut [u8; PACKET_BUFFER_SIZE],
 	timeout: u16,
 ) -> Result<&'a [u8]> {
 	let rx_pkt_params = lora
@@ -52,7 +56,7 @@ async fn tx_packet<RK: RadioKind, DLY: DelayNs>(
 	buffer: &[u8],
 ) -> Result<()> {
 	let mut tx_pkt_params = lora
-		.create_tx_packet_params(8, false, true, false, mod_params)
+		.create_tx_packet_params(8, false, false, false, mod_params)
 		.map_err(Error::RadioError)?;
 
 	lora.prepare_for_tx(mod_params, &mut tx_pkt_params, 20, buffer)
@@ -83,7 +87,28 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 	let identity = SigningKeys::hardcoded();
 
-	let mut packet_buffer: [u8; PACKET_BUFFER_SIZE as usize] = [0; PACKET_BUFFER_SIZE as usize];
+	let mut packet_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
+	let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
+	packet.flags = PacketFlags::new(RouteType::Direct, PayloadType::Advert, PayloadVersion::Ver1);
+	let path_len = 0;
+	let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
+
+	let (advert_header, body) = AdvertHeader::mut_from_prefix(payload).unwrap();
+	advert_header.timestamp = U32::from(0x63b0ce47);
+	advert_header.flags = AdvertFlags::NAME | AdvertFlags::from_adv_type(AdvType::Chat);
+
+	let message = "ROBOT";
+	let message_len = message.len();
+	body[..message_len].copy_from_slice(message.as_bytes());
+
+	advert_header.fill_key_and_signature(&body[..message_len], &identity);
+
+	let packet_length =
+		size_of::<PacketHeader>() + path_len + size_of::<AdvertHeader>() + message_len;
+
+	tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
+		.await
+		.unwrap();
 
 	loop {
 		let Ok(packet) = rx_packet(&mut lora, &mod_params, &mut packet_buffer, 0).await
@@ -96,7 +121,7 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 		let packet = Packet::from_bytes(packet).unwrap();
 
-		println!("{:?}", packet.header);
+		println!("Packet Header: {:x}", packet.header);
 
 		match packet.header.flags.payload_type().unwrap() {
 			PayloadType::Advert => {

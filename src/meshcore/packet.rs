@@ -7,9 +7,13 @@ pub mod grp_txt;
 pub mod plain_message;
 pub mod txt_msg;
 
-#[repr(transparent)]
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct U16(zerocopy::little_endian::U16);
+#[repr(transparent)]
+pub struct U16(pub zerocopy::little_endian::U16);
+
+impl From<u16> for U16 {
+	fn from(value: u16) -> Self { Self(value.into()) }
+}
 
 impl Format for U16 {
 	fn format(&self, fmt: Formatter) {
@@ -17,9 +21,13 @@ impl Format for U16 {
 	}
 }
 
-#[repr(transparent)]
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct U32(zerocopy::little_endian::U32);
+#[repr(transparent)]
+pub struct U32(pub zerocopy::little_endian::U32);
+
+impl From<u32> for U32 {
+	fn from(value: u32) -> Self { Self(value.into()) }
+}
 
 impl Format for U32 {
 	fn format(&self, fmt: Formatter) {
@@ -27,8 +35,12 @@ impl Format for U32 {
 	}
 }
 
-fn try_split_at<T>(slice: &[T], index: usize) -> Option<(&[T], &[T])> {
+pub fn try_split_at<T>(slice: &[T], index: usize) -> Option<(&[T], &[T])> {
 	(slice.len() >= index).then(|| slice.split_at(index))
+}
+
+pub fn try_split_at_mut<T>(slice: &mut [T], index: usize) -> Option<(&mut [T], &mut [T])> {
+	(slice.len() >= index).then(|| slice.split_at_mut(index))
 }
 
 #[derive(Clone, Format)]
