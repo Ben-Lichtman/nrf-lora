@@ -1,31 +1,14 @@
 use crate::{
 	error::{Error, Result},
-	meshcore::{PACKET_BUFFER_SIZE, SIGNATURE_SIZE},
+	meshcore::{
+		PACKET_BUFFER_SIZE, SIGNATURE_SIZE,
+		packet::{U16, U32},
+	},
 };
 use core::ops::BitOr;
 use defmt::{write, *};
 use ed25519_dalek::{Signature, VerifyingKey};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
-
-#[repr(transparent)]
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct U16(zerocopy::little_endian::U16);
-
-impl Format for U16 {
-	fn format(&self, fmt: Formatter) {
-		write!(fmt, "{:04x}", self.0.get());
-	}
-}
-
-#[repr(transparent)]
-#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct U32(zerocopy::little_endian::U32);
-
-impl Format for U32 {
-	fn format(&self, fmt: Formatter) {
-		write!(fmt, "{:08x}", self.0.get());
-	}
-}
 
 #[derive(Clone, Format)]
 #[repr(u8)]
@@ -122,7 +105,7 @@ impl<'a> Advert<'a> {
 			AdvertHeader::ref_from_prefix(payload).map_err(|_| Error::ZeroCopy)?;
 
 		// Verify advert contents
-		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE as usize];
+		let mut message_buffer = [0u8; PACKET_BUFFER_SIZE];
 		message_buffer[..32].copy_from_slice(&header.pub_key);
 		message_buffer[32..36].copy_from_slice(header.timestamp.as_bytes());
 		message_buffer[36] = header.flags.as_raw();

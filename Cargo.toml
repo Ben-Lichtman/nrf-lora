@@ -37,8 +37,8 @@ lora-phy = { git = "https://github.com/lora-rs/lora-rs", version = "3.0.2-alpha"
     "defmt-03",
 ] }
 zerocopy = { version = "0.8", features = ["derive"] }
-ctr = "0.9"
 aes = "0.8"
+ctr = "0.9"
 femtopb = { version = "0.8", features = ["defmt"] }
 thiserror = { version = "2.0", default-features = false }
 rand_core = "0.9"

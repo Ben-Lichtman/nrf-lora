@@ -2,7 +2,7 @@ pub mod crypto;
 pub mod lora;
 pub mod packet;
 
-pub const PACKET_BUFFER_SIZE: u8 = 255;
+pub const PACKET_BUFFER_SIZE: usize = 255;
 pub const MESHCORE_SYNCWORD: u8 = 0x12;
 
 // pub const MAX_PACKET_PAYLOAD: usize = 184;

@@ -1,10 +1,31 @@
 use crate::error::{Error, Result};
-use defmt::*;
+use defmt::{write, *};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub mod advert;
 pub mod grp_txt;
+pub mod plain_message;
 pub mod txt_msg;
+
+#[repr(transparent)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct U16(zerocopy::little_endian::U16);
+
+impl Format for U16 {
+	fn format(&self, fmt: Formatter) {
+		write!(fmt, "{:04x}", self.0.get());
+	}
+}
+
+#[repr(transparent)]
+#[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct U32(zerocopy::little_endian::U32);
+
+impl Format for U32 {
+	fn format(&self, fmt: Formatter) {
+		write!(fmt, "{:08x}", self.0.get());
+	}
+}
 
 fn try_split_at<T>(slice: &[T], index: usize) -> Option<(&[T], &[T])> {
 	(slice.len() >= index).then(|| slice.split_at(index))

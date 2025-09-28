@@ -1,6 +1,10 @@
 use crate::error::Result;
+use aes::{
+	Aes128Dec,
+	cipher::{BlockDecryptMut, KeyInit},
+};
 use ed25519_dalek::{SigningKey, VerifyingKey, ed25519::signature::Signer};
-use hmac::{Hmac, Mac};
+use hmac::Mac;
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
@@ -18,7 +22,7 @@ pub const PUBLIC_GROUP_PSK: [u8; 16] = [
 	0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a, 0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72,
 ];
 
-type HmacSha256 = Hmac<Sha256>;
+type HmacSha256 = hmac::Hmac<Sha256>;
 
 pub fn hardcoded_pub_key() -> VerifyingKey {
 	VerifyingKey::from_bytes(&OTHER_DEVICE_PUBLIC_KEY_HARDCODED).unwrap()
@@ -57,4 +61,12 @@ pub fn calculate_channel_hash(secret: &[u8; 16]) -> u8 {
 	let sha = Sha256::new().chain_update(secret).finalize();
 	let out = <[u8; 32]>::from(sha);
 	out[0]
+}
+
+pub fn decrypt_message<'a>(key: &'a [u8; 16], message: &'a mut [u8; 256], len: usize) -> &'a [u8] {
+	let mut aes = Aes128Dec::new(key.into());
+	for block in message.chunks_exact_mut(16) {
+		aes.decrypt_block_mut(block.into());
+	}
+	&message[..len]
 }

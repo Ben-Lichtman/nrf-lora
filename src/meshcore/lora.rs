@@ -2,9 +2,10 @@ use crate::{
 	error::{Error, Result},
 	meshcore::{
 		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
-		crypto::{PUBLIC_GROUP_PSK, SigningKeys, msg_mac},
+		crypto::{PUBLIC_GROUP_PSK, SigningKeys, decrypt_message, msg_mac},
 		packet::{
-			Packet, PayloadType, advert::Advert, grp_txt::GrpTextHeader, txt_msg::TxtMsgHeader,
+			Packet, PayloadType, advert::Advert, grp_txt::GrpTextHeader,
+			plain_message::PlainMessageHeader, txt_msg::TxtMsgHeader,
 		},
 	},
 };
@@ -121,7 +122,22 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 						continue;
 					}
 
+					let mut decryption_buffer = [0u8; 256];
+					let payload_len = payload.len();
+					decryption_buffer[..payload_len].copy_from_slice(payload);
+
 					// TODO: decrypt the message (AES-128-ECB)
+					let decrypted =
+						decrypt_message(&PUBLIC_GROUP_PSK, &mut decryption_buffer, payload_len);
+
+					let (plain_header, message) =
+						PlainMessageHeader::ref_from_prefix(decrypted).unwrap();
+
+					info!(
+						"Header: {}, Msg: \"{}\"",
+						plain_header,
+						str::from_utf8(message).unwrap()
+					);
 				}
 			}
 			unknown => {
