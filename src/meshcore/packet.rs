@@ -3,9 +3,9 @@ use defmt::{write, *};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub mod advert;
-pub mod grp_txt;
+pub mod direct_packets;
+pub mod group_packets;
 pub mod plain_message;
-pub mod txt_msg;
 
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(transparent)]

@@ -2,14 +2,17 @@ use crate::{
 	error::{Error, Result},
 	meshcore::{
 		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
-		crypto::{PUBLIC_GROUP_PSK, SigningKeys, decrypt_message, msg_mac},
+		crypto::{
+			PUBLIC_GROUP_PSK, SigningKeys, calculate_channel_hash, decrypt_message_16,
+			hardcoded_pub_key, msg_mac_16, msg_mac_32,
+		},
 		packet::{
 			Packet, PacketFlags, PacketHeader, PayloadType, PayloadVersion, RouteType, U32,
 			advert::{AdvType, Advert, AdvertFlags, AdvertHeader},
-			grp_txt::GrpTextHeader,
+			direct_packets::DirectHeader,
+			group_packets::GroupHeader,
 			plain_message::PlainMessageHeader,
 			try_split_at_mut,
-			txt_msg::TxtMsgHeader,
 		},
 	},
 };
@@ -78,37 +81,38 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 ) -> ! {
 	let mod_params = lora
 		.create_modulation_params(
-			SpreadingFactor::_10,
-			Bandwidth::_250KHz,
+			SpreadingFactor::_7,
+			Bandwidth::_62KHz,
 			CodingRate::_4_5,
-			915_000_000,
+			910_525_000,
 		)
 		.unwrap();
 
 	let identity = SigningKeys::hardcoded();
 
 	let mut packet_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
-	let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
-	packet.flags = PacketFlags::new(RouteType::Direct, PayloadType::Advert, PayloadVersion::Ver1);
-	let path_len = 0;
-	let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
 
-	let (advert_header, body) = AdvertHeader::mut_from_prefix(payload).unwrap();
-	advert_header.timestamp = U32::from(0x63b0ce47);
-	advert_header.flags = AdvertFlags::NAME | AdvertFlags::from_adv_type(AdvType::Chat);
+	// let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
+	// packet.flags = PacketFlags::new(RouteType::Direct, PayloadType::Advert, PayloadVersion::Ver1);
+	// let path_len = 0;
+	// let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
 
-	let message = "ROBOT";
-	let message_len = message.len();
-	body[..message_len].copy_from_slice(message.as_bytes());
+	// let (advert_header, body) = AdvertHeader::mut_from_prefix(payload).unwrap();
+	// advert_header.timestamp = U32::from(0x63b0ce47);
+	// advert_header.flags = AdvertFlags::NAME | AdvertFlags::from_adv_type(AdvType::Chat);
 
-	advert_header.fill_key_and_signature(&body[..message_len], &identity);
+	// let message = "ROBOT";
+	// let message_len = message.len();
+	// body[..message_len].copy_from_slice(message.as_bytes());
 
-	let packet_length =
-		size_of::<PacketHeader>() + path_len + size_of::<AdvertHeader>() + message_len;
+	// advert_header.fill_key_and_signature(&body[..message_len], &identity);
 
-	tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
-		.await
-		.unwrap();
+	// let packet_length =
+	// 	size_of::<PacketHeader>() + path_len + size_of::<AdvertHeader>() + message_len;
+
+	// tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
+	// 	.await
+	// 	.unwrap();
 
 	loop {
 		let Ok(packet) = rx_packet(&mut lora, &mod_params, &mut packet_buffer, 0).await
@@ -119,31 +123,68 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 		info!("Got data: {:02x}", packet);
 
-		let packet = Packet::from_bytes(packet).unwrap();
+		let Ok(packet) = Packet::from_bytes(packet)
+		else {
+			warn!("Parsing packet failed");
+			continue;
+		};
 
-		println!("Packet Header: {:x}", packet.header);
+		info!("Packet Header: {:02x}", packet.header);
 
-		match packet.header.flags.payload_type().unwrap() {
-			PayloadType::Advert => {
-				let (advert, _) = Advert::from_bytes(packet.payload).unwrap();
-				info!("advert: {:?}", &advert);
+		let payload_type = packet.header.flags.payload_type().unwrap();
+		info!("==> Payload type <{}>", payload_type);
+		match payload_type {
+			PayloadType::Req => {
+				let (direct_header, payload) =
+					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("{:02x}", &direct_header);
+			}
+			PayloadType::Resp => {
+				let (direct_header, payload) =
+					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("{:02x}", &direct_header);
 			}
 			PayloadType::Txt => {
-				let (txt, payload) = TxtMsgHeader::ref_from_prefix(packet.payload).unwrap();
-				info!("txt: {:02x}", &txt);
+				let (direct_header, payload) =
+					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("{:02x}", &direct_header);
+
+				if direct_header.dest_hash == identity.public_key()[0] {
+					info!("Direct text to this device");
+
+					let shared_secret = identity.calc_shared_secret(&hardcoded_pub_key());
+
+					let mac = msg_mac_32(payload, shared_secret.as_bytes()).unwrap();
+					info!("=> msg_mac : {:02x}", direct_header.mac);
+					info!("=> calc_mac : {:02x}", mac);
+
+					if mac[..2] != direct_header.mac {
+						warn!("MACs don't match");
+						continue;
+					}
+
+					// TODO decrypt
+				}
+			}
+			// PayloadType::Ack => {}
+			PayloadType::Advert => {
+				let (advert, _) = Advert::from_bytes(packet.payload).unwrap();
+				info!("{:02x}", &advert);
+
+				// info!("pub key: {:#02x}", &advert.header.pub_key);
 			}
 			PayloadType::GrpText => {
-				let (grp_txt, payload) = GrpTextHeader::ref_from_prefix(packet.payload).unwrap();
+				let (group_header, payload) = GroupHeader::ref_from_prefix(packet.payload).unwrap();
 
-				info!("grp_txt: {:02x}", &grp_txt);
+				info!("{:02x}", &group_header);
 
-				if grp_txt.channel_hash == PUBLIC_GROUP_HASH {
+				if group_header.channel_hash == calculate_channel_hash(&PUBLIC_GROUP_PSK) {
 					// Sent on public group
 					info!("Public group text");
 
-					let mac = msg_mac(payload, &PUBLIC_GROUP_PSK).unwrap();
-					if mac[..2] != grp_txt.mac {
-						error!("MACs don't match");
+					let mac = msg_mac_16(payload, &PUBLIC_GROUP_PSK).unwrap();
+					if mac[..2] != group_header.mac {
+						warn!("MACs don't match");
 						continue;
 					}
 
@@ -151,22 +192,31 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 					let payload_len = payload.len();
 					decryption_buffer[..payload_len].copy_from_slice(payload);
 
-					// TODO: decrypt the message (AES-128-ECB)
 					let decrypted =
-						decrypt_message(&PUBLIC_GROUP_PSK, &mut decryption_buffer, payload_len);
+						decrypt_message_16(&PUBLIC_GROUP_PSK, &mut decryption_buffer, payload_len);
 
 					let (plain_header, message) =
 						PlainMessageHeader::ref_from_prefix(decrypted).unwrap();
 
-					info!(
-						"Header: {}, Msg: \"{}\"",
-						plain_header,
-						str::from_utf8(message).unwrap()
-					);
+					info!("Header: {}, Msg: \"{}\"", plain_header, unsafe {
+						str::from_utf8_unchecked(message)
+					});
 				}
 			}
-			unknown => {
-				info!("unknown payload type: {:02x}", unknown);
+			PayloadType::GrpData => {
+				let (group_header, payload) = GroupHeader::ref_from_prefix(packet.payload).unwrap();
+
+				info!("{:02x}", &group_header);
+			}
+			// PayloadType::AnonReq => {}
+			PayloadType::Path => {
+				let (direct_header, payload) =
+					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				info!("{:02x}", &direct_header);
+			}
+			// PayloadType::RawCustom => {}
+			_ => {
+				info!("Unable to process payload type");
 			}
 		}
 	}

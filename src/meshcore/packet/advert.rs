@@ -131,7 +131,9 @@ impl<'a> Advert<'a> {
 			AdvertHeader::ref_from_prefix(payload).map_err(|_| Error::ZeroCopy)?;
 
 		// Verify advert contents
-		header.verify_signature(body)?;
+		if header.verify_signature(body).is_err() {
+			warn!("Signature doesn't match");
+		}
 
 		let mut lat_long = None;
 		let mut battery = None;

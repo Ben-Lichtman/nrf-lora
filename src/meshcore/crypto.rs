@@ -1,6 +1,6 @@
 use crate::error::Result;
 use aes::{
-	Aes128Dec,
+	Aes128Dec, Aes256Dec,
 	cipher::{BlockDecryptMut, KeyInit},
 };
 use ed25519_dalek::{SigningKey, VerifyingKey, ed25519::signature::Signer};
@@ -14,8 +14,8 @@ const ED25519_PRIVATE_KEY_HARDCODED: [u8; 32] = [
 ];
 
 const OTHER_DEVICE_PUBLIC_KEY_HARDCODED: [u8; 32] = [
-	0x52, 0xfe, 0x45, 0x5e, 0x77, 0x1f, 0x53, 0x1e, 0x9e, 0x23, 0xdd, 0x8c, 0x60, 0x2f, 0x8b, 0x04,
-	0xd4, 0x48, 0x9b, 0xcd, 0xc8, 0xc7, 0xef, 0x73, 0x19, 0x4d, 0x99, 0xf3, 0x43, 0x41, 0x77, 0x22,
+	0xc5, 0xef, 0xbf, 0xf4, 0x93, 0xee, 0x9e, 0xf3, 0x44, 0xd, 0x72, 0x15, 0x61, 0xed, 0x1c, 0x6a,
+	0x9b, 0xac, 0xec, 0x43, 0xce, 0xf8, 0xbc, 0x0, 0x2, 0x90, 0x98, 0xab, 0x6b, 0x9, 0x3f, 0x26,
 ];
 
 pub const PUBLIC_GROUP_PSK: [u8; 16] = [
@@ -49,7 +49,15 @@ impl SigningKeys {
 	}
 }
 
-pub fn msg_mac(payload: &[u8], shared: &[u8; 16]) -> Result<[u8; 32]> {
+pub fn msg_mac_16(payload: &[u8], shared: &[u8; 16]) -> Result<[u8; 32]> {
+	let mut mac = <HmacSha256 as Mac>::new_from_slice(shared).unwrap();
+	mac.update(payload);
+	let finished = mac.finalize().into_bytes();
+	let mac = <[u8; 32]>::from(finished);
+	Ok(mac)
+}
+
+pub fn msg_mac_32(payload: &[u8], shared: &[u8; 32]) -> Result<[u8; 32]> {
 	let mut mac = <HmacSha256 as Mac>::new_from_slice(shared).unwrap();
 	mac.update(payload);
 	let finished = mac.finalize().into_bytes();
@@ -63,9 +71,25 @@ pub fn calculate_channel_hash(secret: &[u8; 16]) -> u8 {
 	out[0]
 }
 
-pub fn decrypt_message<'a>(key: &'a [u8; 16], message: &'a mut [u8; 256], len: usize) -> &'a [u8] {
+pub fn decrypt_message_16<'a>(
+	key: &'a [u8; 16],
+	message: &'a mut [u8; 256],
+	len: usize,
+) -> &'a [u8] {
 	let mut aes = Aes128Dec::new(key.into());
 	for block in message.chunks_exact_mut(16) {
+		aes.decrypt_block_mut(block.into());
+	}
+	&message[..len]
+}
+
+pub fn decrypt_message_32<'a>(
+	key: &'a [u8; 32],
+	message: &'a mut [u8; 256],
+	len: usize,
+) -> &'a [u8] {
+	let mut aes = Aes256Dec::new(key.into());
+	for block in message.chunks_exact_mut(32) {
 		aes.decrypt_block_mut(block.into());
 	}
 	&message[..len]
