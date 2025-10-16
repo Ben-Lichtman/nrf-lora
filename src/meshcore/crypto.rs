@@ -14,8 +14,8 @@ const ED25519_PRIVATE_KEY_HARDCODED: [u8; 32] = [
 ];
 
 const OTHER_DEVICE_PUBLIC_KEY_HARDCODED: [u8; 32] = [
-	0xc5, 0xef, 0xbf, 0xf4, 0x93, 0xee, 0x9e, 0xf3, 0x44, 0xd, 0x72, 0x15, 0x61, 0xed, 0x1c, 0x6a,
-	0x9b, 0xac, 0xec, 0x43, 0xce, 0xf8, 0xbc, 0x0, 0x2, 0x90, 0x98, 0xab, 0x6b, 0x9, 0x3f, 0x26,
+	0x4f, 0x83, 0xe8, 0xc3, 0x10, 0xaa, 0x7b, 0x40, 0xd1, 0x32, 0xc9, 0xce, 0x7d, 0xc4, 0x7c, 0xe,
+	0xe6, 0x72, 0x88, 0x5f, 0x11, 0xd9, 0xae, 0x69, 0x5f, 0x90, 0xe4, 0xf9, 0x7, 0xc0, 0x6d, 0x40,
 ];
 
 pub const PUBLIC_GROUP_PSK: [u8; 16] = [
@@ -42,10 +42,11 @@ impl SigningKeys {
 
 	pub fn sign_message(&self, msg: &[u8]) -> [u8; 64] { self.keys.sign(msg).to_bytes() }
 
-	pub fn calc_shared_secret(&self, other: &VerifyingKey) -> SharedSecret {
-		let sk = StaticSecret::from(self.keys.to_scalar().to_bytes());
-		let pk = PublicKey::from(other.to_montgomery().0);
-		sk.diffie_hellman(&pk)
+	pub fn calc_shared_secret(&self, other: &VerifyingKey) -> [u8; 32] {
+		// let sk = StaticSecret::from(self.keys.to_scalar().to_bytes());
+		// let pk = PublicKey::from(other.to_montgomery().0);
+		// sk.diffie_hellman(&pk)
+		(self.keys.to_scalar() * other.to_montgomery()).to_bytes()
 	}
 }
 
@@ -71,25 +72,9 @@ pub fn calculate_channel_hash(secret: &[u8; 16]) -> u8 {
 	out[0]
 }
 
-pub fn decrypt_message_16<'a>(
-	key: &'a [u8; 16],
-	message: &'a mut [u8; 256],
-	len: usize,
-) -> &'a [u8] {
+pub fn decrypt_message<'a>(key: &'a [u8; 16], message: &'a mut [u8; 256], len: usize) -> &'a [u8] {
 	let mut aes = Aes128Dec::new(key.into());
 	for block in message.chunks_exact_mut(16) {
-		aes.decrypt_block_mut(block.into());
-	}
-	&message[..len]
-}
-
-pub fn decrypt_message_32<'a>(
-	key: &'a [u8; 32],
-	message: &'a mut [u8; 256],
-	len: usize,
-) -> &'a [u8] {
-	let mut aes = Aes256Dec::new(key.into());
-	for block in message.chunks_exact_mut(32) {
 		aes.decrypt_block_mut(block.into());
 	}
 	&message[..len]

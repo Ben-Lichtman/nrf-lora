@@ -3,7 +3,7 @@ use crate::{
 	meshcore::{
 		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
 		crypto::{
-			PUBLIC_GROUP_PSK, SigningKeys, calculate_channel_hash, decrypt_message_16,
+			PUBLIC_GROUP_PSK, SigningKeys, calculate_channel_hash, decrypt_message,
 			hardcoded_pub_key, msg_mac_16, msg_mac_32,
 		},
 		packet::{
@@ -89,6 +89,7 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 		.unwrap();
 
 	let identity = SigningKeys::hardcoded();
+	info!("=> My public key: {:02x}", identity.public_key());
 
 	let mut packet_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
 
@@ -121,7 +122,7 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 			continue;
 		};
 
-		info!("Got data: {:02x}", packet);
+		// info!("Got data: {:02x}", packet);
 
 		let Ok(packet) = Packet::from_bytes(packet)
 		else {
@@ -131,7 +132,11 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 
 		info!("Packet Header: {:02x}", packet.header);
 
-		let payload_type = packet.header.flags.payload_type().unwrap();
+		let Ok(payload_type) = packet.header.flags.payload_type()
+		else {
+			info!("Invalid payload type");
+			continue;
+		};
 		info!("==> Payload type <{}>", payload_type);
 		match payload_type {
 			PayloadType::Req => {
@@ -153,17 +158,31 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 					info!("Direct text to this device");
 
 					let shared_secret = identity.calc_shared_secret(&hardcoded_pub_key());
+					// info!("=> shared_secret : {:02x}", shared_secret);
 
-					let mac = msg_mac_32(payload, shared_secret.as_bytes()).unwrap();
-					info!("=> msg_mac : {:02x}", direct_header.mac);
-					info!("=> calc_mac : {:02x}", mac);
+					let mac = msg_mac_32(payload, &shared_secret).unwrap();
+					// info!("=> msg_mac : {:02x}", direct_header.mac);
+					// info!("=> calc_mac : {:02x}", mac);
 
 					if mac[..2] != direct_header.mac {
 						warn!("MACs don't match");
 						continue;
 					}
 
-					// TODO decrypt
+					let mut decryption_buffer = [0u8; 256];
+					let payload_len = payload.len();
+					decryption_buffer[..payload_len].copy_from_slice(payload);
+
+					let key_trunc = <[u8; 16]>::try_from(&shared_secret[..16]).unwrap();
+					let decrypted =
+						decrypt_message(&key_trunc, &mut decryption_buffer, payload_len);
+
+					let (plain_header, message) =
+						PlainMessageHeader::ref_from_prefix(decrypted).unwrap();
+
+					info!("Header: {}, Msg: \"{}\"", plain_header, unsafe {
+						str::from_utf8_unchecked(message)
+					});
 				}
 			}
 			// PayloadType::Ack => {}
@@ -171,7 +190,7 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 				let (advert, _) = Advert::from_bytes(packet.payload).unwrap();
 				info!("{:02x}", &advert);
 
-				// info!("pub key: {:#02x}", &advert.header.pub_key);
+				info!("pub key: {:#02x}", &advert.header.pub_key);
 			}
 			PayloadType::GrpText => {
 				let (group_header, payload) = GroupHeader::ref_from_prefix(packet.payload).unwrap();
@@ -193,7 +212,7 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 					decryption_buffer[..payload_len].copy_from_slice(payload);
 
 					let decrypted =
-						decrypt_message_16(&PUBLIC_GROUP_PSK, &mut decryption_buffer, payload_len);
+						decrypt_message(&PUBLIC_GROUP_PSK, &mut decryption_buffer, payload_len);
 
 					let (plain_header, message) =
 						PlainMessageHeader::ref_from_prefix(decrypted).unwrap();

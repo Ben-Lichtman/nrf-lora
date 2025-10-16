@@ -5,7 +5,7 @@ target = "thumbv7em-none-eabihf"
 DEFMT_LOG = "info"
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip=nRF52840_xxAA"
+runner = "probe-rs run --chip=nRF52840_xxAA --probe 2e8a:000c:E6633861A38C7B38"
 linker = "flip-link"
 rustflags = [
     "-C",
