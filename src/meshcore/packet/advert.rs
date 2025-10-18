@@ -70,7 +70,7 @@ impl AdvertHeader {
 		message_buffer[32..36].copy_from_slice(self.timestamp.as_bytes());
 		message_buffer[36] = self.flags.as_raw();
 		message_buffer[37..37 + body.len()].copy_from_slice(body);
-		let pub_key = VerifyingKey::from_bytes(&self.pub_key).unwrap();
+		let pub_key = VerifyingKey::from_bytes(&self.pub_key).map_err(|_| Error::CryptoError)?;
 		let signature = Signature::from_bytes(&self.signature);
 		pub_key
 			.verify_strict(&message_buffer[..32 + 4 + 1 + body.len()], &signature)

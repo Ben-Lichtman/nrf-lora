@@ -3,7 +3,6 @@
 #![no_std]
 #![no_main]
 
-pub mod constants;
 pub mod error;
 pub mod meshcore;
 pub mod meshtastic;

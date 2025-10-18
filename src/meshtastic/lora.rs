@@ -1,8 +1,7 @@
 use crate::{
-	constants::LONGFAST_KEY,
 	error::{Error, Result},
 	meshtastic::{
-		PACKET_BUFFER_SIZE,
+		LONGFAST_KEY, PACKET_BUFFER_SIZE,
 		crypto::{crypt_data_128, generate_nonce},
 		packet::{Flags, NodeID, PacketHeader},
 	},
