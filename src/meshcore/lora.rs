@@ -1,10 +1,11 @@
 use crate::{
 	error::{Error, Result},
 	meshcore::{
-		PACKET_BUFFER_SIZE, PUBLIC_GROUP_HASH,
+		PACKET_BUFFER_SIZE,
 		crypto::{
-			PUBLIC_GROUP_PSK, SigningKeys, calculate_channel_hash, decrypt_message,
-			hardcoded_pub_key, msg_mac_16, msg_mac_32,
+			OTHER_DEVICE_PUBLIC_KEY_HARDCODED, PUBLIC_GROUP_PSK, SigningKeys,
+			calculate_channel_hash, decrypt_message, hardcoded_pub_key, msg_ack_hash, msg_mac_16,
+			msg_mac_32,
 		},
 		packet::{
 			Packet, PacketFlags, PacketHeader, PayloadType, PayloadVersion, RouteType, U32,
@@ -75,6 +76,34 @@ async fn tx_packet<RK: RadioKind, DLY: DelayNs>(
 	Ok(())
 }
 
+fn decrypt_direct_message<'a>(
+	identity: &SigningKeys,
+	header: &DirectHeader,
+	payload: &[u8],
+	decryption_buffer: &'a mut [u8; PACKET_BUFFER_SIZE],
+) -> Result<&'a [u8]> {
+	let shared_secret = identity.calc_shared_secret(&hardcoded_pub_key());
+	// info!("=> shared_secret : {:02x}", shared_secret);
+
+	let mac = msg_mac_32(payload, &shared_secret).unwrap();
+	// info!("=> msg_mac : {:02x}", header.mac);
+	// info!("=> calc_mac : {:02x}", mac);
+
+	if mac[..2] != header.mac {
+		warn!("MACs don't match");
+		return Err(Error::InvalidMAC);
+	}
+
+	let payload_len = payload.len();
+	decryption_buffer[..payload_len].copy_from_slice(payload);
+
+	let key_trunc = <[u8; 16]>::try_from(&shared_secret[..16]).unwrap();
+
+	let decrypted = decrypt_message(&key_trunc, decryption_buffer, payload_len);
+
+	Ok(decrypted)
+}
+
 pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 	mut lora: LoRa<RK, DLY>,
 	mut _rng: R,
@@ -92,28 +121,30 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 	info!("=> My public key: {:02x}", identity.public_key());
 
 	let mut packet_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
+	let mut crypto_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
+	let mut resp_buffer: [u8; PACKET_BUFFER_SIZE] = [0; PACKET_BUFFER_SIZE];
 
-	// let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
-	// packet.flags = PacketFlags::new(RouteType::Direct, PayloadType::Advert, PayloadVersion::Ver1);
-	// let path_len = 0;
-	// let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
+	let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
+	packet.flags = PacketFlags::new(RouteType::Direct, PayloadType::Advert, PayloadVersion::Ver1);
+	let path_len = 0;
+	let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
 
-	// let (advert_header, body) = AdvertHeader::mut_from_prefix(payload).unwrap();
-	// advert_header.timestamp = U32::from(0x63b0ce47);
-	// advert_header.flags = AdvertFlags::NAME | AdvertFlags::from_adv_type(AdvType::Chat);
+	let (advert_header, body) = AdvertHeader::mut_from_prefix(payload).unwrap();
+	advert_header.timestamp = U32::from(0x1);
+	advert_header.flags = AdvertFlags::NAME | AdvertFlags::from_adv_type(AdvType::Chat);
 
-	// let message = "ROBOT";
-	// let message_len = message.len();
-	// body[..message_len].copy_from_slice(message.as_bytes());
+	let message = "ROBOT";
+	let message_len = message.len();
+	body[..message_len].copy_from_slice(message.as_bytes());
 
-	// advert_header.fill_key_and_signature(&body[..message_len], &identity);
+	advert_header.fill_key_and_signature(&body[..message_len], &identity);
 
-	// let packet_length =
-	// 	size_of::<PacketHeader>() + path_len + size_of::<AdvertHeader>() + message_len;
+	let packet_length =
+		size_of::<PacketHeader>() + path_len + size_of::<AdvertHeader>() + message_len;
 
-	// tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
-	// 	.await
-	// 	.unwrap();
+	tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
+		.await
+		.unwrap();
 
 	loop {
 		let Ok(packet) = rx_packet(&mut lora, &mod_params, &mut packet_buffer, 0).await
@@ -142,48 +173,73 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 			PayloadType::Req => {
 				let (direct_header, payload) =
 					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				if direct_header.dest_hash != identity.public_key()[0] {
+					continue;
+				}
+				info!("Direct text to this device");
 				info!("{:02x}", &direct_header);
+				let Ok(decrypted) =
+					decrypt_direct_message(&identity, direct_header, payload, &mut crypto_buffer)
+				else {
+					warn!("Failed to decrypt message");
+					continue;
+				};
 			}
 			PayloadType::Resp => {
 				let (direct_header, payload) =
 					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				if direct_header.dest_hash != identity.public_key()[0] {
+					continue;
+				}
+				info!("Direct text to this device");
 				info!("{:02x}", &direct_header);
+				let Ok(decrypted) =
+					decrypt_direct_message(&identity, direct_header, payload, &mut crypto_buffer)
+				else {
+					warn!("Failed to decrypt message");
+					continue;
+				};
 			}
 			PayloadType::Txt => {
 				let (direct_header, payload) =
 					DirectHeader::ref_from_prefix(packet.payload).unwrap();
-				info!("{:02x}", &direct_header);
-
-				if direct_header.dest_hash == identity.public_key()[0] {
-					info!("Direct text to this device");
-
-					let shared_secret = identity.calc_shared_secret(&hardcoded_pub_key());
-					// info!("=> shared_secret : {:02x}", shared_secret);
-
-					let mac = msg_mac_32(payload, &shared_secret).unwrap();
-					// info!("=> msg_mac : {:02x}", direct_header.mac);
-					// info!("=> calc_mac : {:02x}", mac);
-
-					if mac[..2] != direct_header.mac {
-						warn!("MACs don't match");
-						continue;
-					}
-
-					let mut decryption_buffer = [0u8; 256];
-					let payload_len = payload.len();
-					decryption_buffer[..payload_len].copy_from_slice(payload);
-
-					let key_trunc = <[u8; 16]>::try_from(&shared_secret[..16]).unwrap();
-					let decrypted =
-						decrypt_message(&key_trunc, &mut decryption_buffer, payload_len);
-
-					let (plain_header, message) =
-						PlainMessageHeader::ref_from_prefix(decrypted).unwrap();
-
-					info!("Header: {}, Msg: \"{}\"", plain_header, unsafe {
-						str::from_utf8_unchecked(message)
-					});
+				if direct_header.dest_hash != identity.public_key()[0] {
+					continue;
 				}
+				info!("Direct text to this device");
+				info!("{:02x}", &direct_header);
+				let Ok(decrypted) =
+					decrypt_direct_message(&identity, direct_header, payload, &mut crypto_buffer)
+				else {
+					warn!("Failed to decrypt message");
+					continue;
+				};
+
+				let (plain_header, message) =
+					PlainMessageHeader::ref_from_prefix(decrypted).unwrap();
+
+				info!(
+					"Header: {}, Msg: \"{}\", Bytes: \"{:02x}\"",
+					plain_header,
+					unsafe { str::from_utf8_unchecked(message) },
+					message
+				);
+				// Send Ack response
+				let ack = msg_ack_hash(plain_header, message, &OTHER_DEVICE_PUBLIC_KEY_HARDCODED);
+
+				let (packet, payload) = PacketHeader::mut_from_prefix(&mut packet_buffer).unwrap();
+				packet.flags =
+					PacketFlags::new(RouteType::Direct, PayloadType::Ack, PayloadVersion::Ver1);
+				let path_len = 0;
+				let (_path, payload) = try_split_at_mut(payload, path_len).unwrap();
+
+				payload[..4].copy_from_slice(&ack);
+
+				let packet_length = size_of::<PacketHeader>() + path_len + 4;
+
+				tx_packet(&mut lora, &mod_params, &packet_buffer[..packet_length])
+					.await
+					.unwrap();
 			}
 			// PayloadType::Ack => {}
 			PayloadType::Advert => {
@@ -231,7 +287,17 @@ pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
 			PayloadType::Path => {
 				let (direct_header, payload) =
 					DirectHeader::ref_from_prefix(packet.payload).unwrap();
+				if direct_header.dest_hash != identity.public_key()[0] {
+					continue;
+				}
+				info!("Direct text to this device");
 				info!("{:02x}", &direct_header);
+				let Ok(decrypted) =
+					decrypt_direct_message(&identity, direct_header, payload, &mut crypto_buffer)
+				else {
+					warn!("Failed to decrypt message");
+					continue;
+				};
 			}
 			// PayloadType::RawCustom => {}
 			_ => {
