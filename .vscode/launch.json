@@ -14,8 +14,8 @@
             // "speed": 4000,
             "coreConfigs": [
                 {
-                    // "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/debug/nrf-lora"
-                    "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/release/nrf-lora"
+                    "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/debug/nrf-lora"
+                    // "programBinary": "/mnt/Storage/cargo_target/thumbv7em-none-eabihf/release/nrf-lora"
                 }
             ]
         }

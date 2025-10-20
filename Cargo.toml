@@ -61,6 +61,14 @@ x25519-dalek = { version = "2.0", default-features = false, features = [
 hmac = { version = "0.12", features = ["reset"] }
 sha2 = { version = "0.10", default-features = false }
 generic-array = "1.2.0"
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice.git", version = "0.1.0", features = [
+    "ble-peripheral",
+    "nrf52840",
+    "s113",
+    "defmt",
+    "ble-gatt-server",
+] }
+
 
 [build-dependencies]
 femtopb-build = "0.8"

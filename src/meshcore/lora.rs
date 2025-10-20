@@ -104,9 +104,9 @@ fn decrypt_direct_message<'a>(
 	Ok(decrypted)
 }
 
-pub async fn lora_loop<RK: RadioKind, DLY: DelayNs, R: RngCore>(
+pub async fn lora_loop<RK: RadioKind, DLY: DelayNs /* , R: RngCore*/>(
 	mut lora: LoRa<RK, DLY>,
-	mut _rng: R,
+	// mut _rng: R,
 ) -> ! {
 	let mod_params = lora
 		.create_modulation_params(

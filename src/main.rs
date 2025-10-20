@@ -3,18 +3,21 @@
 #![no_std]
 #![no_main]
 
+pub mod bluetooth;
 pub mod error;
 pub mod meshcore;
 pub mod meshtastic;
 pub mod protobuf;
 
+use crate::{bluetooth::Server, meshcore::MESHCORE_SYNCWORD, meshtastic::MESHTASTIC_SYNCWORD};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
 	bind_interrupts,
 	gpio::{Input, Level, Output, OutputDrive, Pull},
-	peripherals, rng, spim,
+	interrupt::{self, InterruptExt, Priority},
+	peripherals, spim,
 };
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -23,10 +26,9 @@ use lora_phy::{
 	iv::GenericSx126xInterfaceVariant,
 	sx126x::{self, Sx126x, Sx1262, TcxoCtrlVoltage},
 };
+use nrf_softdevice::{self as _, Softdevice, random_bytes, raw};
 use panic_probe as _;
-use rand::{Rng, SeedableRng, rngs::StdRng};
-
-use crate::{meshcore::MESHCORE_SYNCWORD, meshtastic::MESHTASTIC_SYNCWORD};
+use rand::{SeedableRng, rngs::StdRng};
 
 type LoraRadio = LoRa<
 	Sx126x<
@@ -39,18 +41,61 @@ type LoraRadio = LoRa<
 
 bind_interrupts!(struct Irqs {
 	TWISPI1 => spim::InterruptHandler<peripherals::TWISPI1>;
-	RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::task]
-async fn lora_loop(lora: LoraRadio, rng: StdRng) -> ! { meshcore::lora::lora_loop(lora, rng).await }
+async fn softdevice_task(sd: &'static Softdevice) -> ! { sd.run().await }
+
+#[embassy_executor::task]
+async fn lora_loop(lora: LoraRadio) -> ! { meshcore::lora::lora_loop(lora).await }
+
+#[embassy_executor::task]
+async fn bluetooth_loop(sd: &'static Softdevice, server: Server) -> ! {
+	bluetooth::bluetooth_loop(sd, server).await
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-	let p = embassy_nrf::init(Default::default());
+	// Reconfigure interrupt priorities to not clash with softdevice
+	let mut config = embassy_nrf::config::Config::default();
+	config.gpiote_interrupt_priority = Priority::P2;
+	config.time_interrupt_priority = Priority::P2;
+	let p = embassy_nrf::init(config);
+	interrupt::TWISPI1.set_priority(Priority::P2);
 
-	// Configure RNG
-	let mut rng_device = rng::Rng::new(p.RNG, Irqs);
+	// Configure softdevice
+	let config = nrf_softdevice::Config {
+		clock: Some(raw::nrf_clock_lf_cfg_t {
+			source: raw::NRF_CLOCK_LF_SRC_RC as u8,
+			rc_ctiv: 16,
+			rc_temp_ctiv: 2,
+			accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
+		}),
+		conn_gap: Some(raw::ble_gap_conn_cfg_t {
+			conn_count: 6,
+			event_length: 24,
+		}),
+		conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+		gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
+			attr_tab_size: raw::BLE_GATTS_ATTR_TAB_SIZE_DEFAULT,
+		}),
+		gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
+			adv_set_count: 1,
+			periph_role_count: 3,
+		}),
+		gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
+			p_value: b"HelloRust" as *const u8 as _,
+			current_len: 9,
+			max_len: 9,
+			write_perm: unsafe { core::mem::zeroed() },
+			_bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
+				raw::BLE_GATTS_VLOC_STACK as u8,
+			),
+		}),
+		..Default::default()
+	};
+
+	let sd = Softdevice::enable(&config);
 
 	// Configure LORA radio
 	let nss = Output::new(p.P1_10, Level::High, OutputDrive::Standard);
@@ -84,8 +129,17 @@ async fn main(spawner: Spawner) {
 		.await
 		.unwrap();
 
+	// Configure bluetooth
+	let server = Server::new(sd).unwrap();
+
+	// // Configure RNG
+	// let mut buf = [0u8; 32];
+	// random_bytes(sd, &mut buf).unwrap();
+	// let mut rng_device = StdRng::from_seed(buf);
+
 	info!("Setup complete");
 
-	let rng = StdRng::from_seed(rng_device.random());
-	spawner.must_spawn(lora_loop(lora, rng));
+	spawner.must_spawn(softdevice_task(sd));
+	spawner.must_spawn(lora_loop(lora));
+	spawner.must_spawn(bluetooth_loop(sd, server));
 }
